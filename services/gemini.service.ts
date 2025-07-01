@@ -25,7 +25,7 @@ export function initializeGeminiClient(apiKey: string): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
 }
 
-// --- START ADDED CODE ---
+// --- START CORRECTED CODE ---
 
 /**
  * 从 Google File API URI 中提取文件ID。
@@ -58,8 +58,8 @@ async function waitForFileActive(
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      // 通过 ai.getFile 方法获取文件状态
-      const file = await ai.getFile(fileId);
+      // 核心修正：使用 ai.fileService.get 方法来获取文件状态
+      const file = await ai.fileService.get({ name: `files/${fileId}` });
       console.log(`文件 ${fileId} 当前状态: ${file.state}`);
 
       if (file && file.state === 'ACTIVE') {
@@ -82,7 +82,7 @@ async function waitForFileActive(
   }
   throw new Error(`文件 ${fileId} 在 ${maxRetries * retryDelayMs / 1000} 秒内未能变为 ACTIVE 状态。`);
 }
-// --- END ADDED CODE ---
+// --- END CORRECTED CODE ---
 
 
 // 处理历史消息
@@ -145,7 +145,7 @@ export async function processMessageHistory(
                 console.log(`Using existing file URI from history: ${fileUriToUse}`);
             }
 
-            // --- START MODIFIED: Wait for file to be active before adding to contents ---
+            // --- WAIT FOR FILE TO BE ACTIVE ---
             if (fileUriToUse) { // 确保 URI 不为空
                 try {
                     await waitForFileActive(fileUriToUse, ai); // 等待文件激活
@@ -157,7 +157,7 @@ export async function processMessageHistory(
                     continue; // 如果文件未激活，则跳过此文件
                 }
             }
-            // --- END MODIFIED ---
+            // --- END WAIT FOR FILE ---
         } else {
             console.warn("Skipping malformed fileDataItem in history (missing uri/mimeType or not object):", fileDataItem);
         }
@@ -204,7 +204,7 @@ export async function processCurrentUserInput(
     try {
       const { uploadedFile, mimeType } = await fetchAndUploadFile(url, ai);
 
-      // --- START MODIFIED: Wait for file to be active before adding to contents ---
+      // --- WAIT FOR FILE TO BE ACTIVE ---
       if (uploadedFile.uri) { // 确保上传的 URI 不为空
         try {
           await waitForFileActive(uploadedFile.uri, ai); // 等待文件激活
@@ -218,7 +218,7 @@ export async function processCurrentUserInput(
       } else {
         console.error(`Uploaded file URI is empty for URL: ${url}`);
       }
-      // --- END MODIFIED ---
+      // --- END WAIT FOR FILE ---
     } catch (uploadError) {
       console.error(`Failed to upload or process file from current input (${url}):`, uploadError);
     }
