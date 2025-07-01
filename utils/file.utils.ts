@@ -34,37 +34,34 @@ export async function fetchAndUploadFile(
       `Uploading file to Gemini: URL=${url}, MimeType=${mimeType}, Size=${blob.size} bytes`
     );
 
-    // 步骤 2: 上传文件。
-    // 【修正】ai.files.upload() 直接返回 File 对象，而不是 { file: File }
-    const uploadResponse = await ai.files.upload({
+    // 步骤 2: 上传文件，`upload` 直接返回 File 对象
+    const fileToPoll = await ai.files.upload({
       file: blob,
       config: { mimeType },
     });
 
-    // 【修正】关键检查：检查返回的对象本身是否有效，而不是检查 .file 属性
-    if (!uploadResponse || !uploadResponse.name) {
-      console.error("Gemini file upload failed. The API response was not a valid File object.", uploadResponse);
+    if (!fileToPoll || !fileToPoll.name) {
+      console.error("Gemini file upload failed. The API response was not a valid File object.", fileToPoll);
       throw new Error("File upload to Gemini failed: Invalid response from API.");
     }
     
-    // 【修正】直接使用 uploadResponse 作为要轮询的文件对象
-    const fileToPoll = uploadResponse; 
     console.log(
       `File upload initiated. Name: ${fileToPoll.name}, URI: ${fileToPoll.uri}. Now polling for ACTIVE state...`
     );
 
-    // 步骤 3: 轮询文件状态 (这部分逻辑是正确的，现在会收到正确的数据)
+    // 步骤 3: 轮询文件状态
     const MAX_RETRIES = 20; 
     const POLLING_INTERVAL_MS = 2000;
 
     for (let i = 0; i < MAX_RETRIES; i++) {
-      // ai.files.get() 返回的是 { file: File } 结构，这里要正确解构
-      const getFileResponse = await ai.files.get({ name: fileToPoll.name });
+      // 【最终修正】`get` 也直接返回 File 对象
+      const currentFile = await ai.files.get({ name: fileToPoll.name });
       
-      if (!getFileResponse || !getFileResponse.file) {
+      // 【最终修正】检查返回的 currentFile 对象本身是否有效
+      if (!currentFile || !currentFile.state) {
+        console.error("Polling failed. Invalid response object received from ai.files.get:", currentFile);
         throw new Error(`Polling failed: Invalid response from ai.files.get for name ${fileToPoll.name}`);
       }
-      const currentFile = getFileResponse.file;
       
       console.log(
         `Polling attempt ${i + 1}/${MAX_RETRIES}: File '${currentFile.name}' state is '${currentFile.state}'.`
@@ -106,15 +103,27 @@ export function parseFileData(
   let parsedFileData: FileData[] = [];
 
   if (typeof rawFileData === "string" && rawFileData.trim() === "") {
+    console.log(`Skipping empty filedata string for role '${role}'.`);
     return [];
   } else if (typeof rawFileData === "string" && rawFileData.trim()) {
     try {
       parsedFileData = JSON.parse(rawFileData);
+      console.log(`Parsed filedata string for role '${role}':`, parsedFileData);
     } catch (parseError) {
+      console.warn(
+        `Failed to parse filedata string for role '${role}' as JSON, treating as empty: ${rawFileData}`,
+        parseError
+      );
       return [];
     }
   } else if (Array.isArray(rawFileData)) {
     parsedFileData = rawFileData;
+    console.log(`Received filedata as array for role '${role}':`, parsedFileData);
+  } else if (rawFileData !== undefined && rawFileData !== null) {
+    console.warn(
+      `Unsupported filedata type for role '${role}': ${typeof rawFileData}`,
+      rawFileData
+    );
   }
 
   return parsedFileData;
@@ -130,6 +139,7 @@ export function parseFileURLs(
     currentFileURLs = userFileURL.filter(
       (url: string) => typeof url === "string" && url.trim()
     );
+    console.log(`Received fileURL as array: ${currentFileURLs.length} items`);
   } else if (typeof userFileURL === "string" && userFileURL.trim()) {
     try {
       const parsed = JSON.parse(userFileURL);
@@ -137,19 +147,40 @@ export function parseFileURLs(
         currentFileURLs = parsed.filter(
           (url: unknown) => typeof url === "string" && url.trim()
         );
+        console.log(
+          `Parsed fileURL string as array: ${currentFileURLs.length} items`
+        );
       } else {
+        console.warn(
+          `fileURL string parsed to non-array type, treating as single URL: ${userFileURL}`
+        );
         currentFileURLs = [userFileURL.trim()];
+        console.log(
+          `Received fileURL as single string (JSON parsed to non-array): ${currentFileURLs[0]}`
+        );
       }
     } catch (e) {
+      console.warn(
+        `Failed to parse fileURL string as JSON, attempting comma split or single URL: ${userFileURL}`,
+        e
+      );
       if (userFileURL.includes(",")) {
         currentFileURLs = userFileURL
           .split(",")
           .map((url: string) => url.trim())
           .filter(Boolean);
+        console.log(
+          `Received fileURL as comma-separated string: ${currentFileURLs.length} items`
+        );
       } else {
         currentFileURLs = [userFileURL.trim()];
+        console.log(
+          `Received fileURL as single string (JSON parse failed): ${currentFileURLs[0]}`
+        );
       }
     }
+  } else {
+    console.log("No valid fileURL found or it's not an array/string.");
   }
 
   return currentFileURLs;
